@@ -14,10 +14,16 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License
   -->
+
 <ScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
+    android:paddingLeft="4dp">
 
     <LinearLayout
         xmlns:android="http://schemas.android.com/apk/res/android"
@@ -155,6 +161,36 @@
             android:layout_height="wrap_content"
             android:paddingRight="4dp"
             android:text="@string/unregisterForCommunicationAllowedStateChanged"/>
+        <Button
+            android:id="@+id/registerForModemStateChanged"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingRight="4dp"
+            android:text="@string/registerForModemStateChanged"/>
+        <Button
+            android:id="@+id/unregisterForModemStateChanged"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingRight="4dp"
+            android:text="@string/unregisterForModemStateChanged"/>
+        <Button
+            android:id="@+id/requestSatelliteSubscriberProvisionStatusWrapper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingRight="4dp"
+            android:text="@string/requestSatelliteSubscriberProvisionStatus"/>
+        <Button
+            android:id="@+id/provisionSatelliteWrapper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingRight="4dp"
+            android:text="@string/provisionSatellite"/>
+        <Button
+            android:id="@+id/deprovisionSatelliteWrapper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingRight="4dp"
+            android:text="@string/deprovisionSatellite"/>
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -191,5 +227,4 @@
             android:layout_centerVertical="true"
             android:textSize="8dp" />
     </LinearLayout>
-
 </ScrollView>

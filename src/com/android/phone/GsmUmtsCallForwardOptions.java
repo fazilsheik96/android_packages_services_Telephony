@@ -203,6 +203,14 @@ public class GsmUmtsCallForwardOptions extends TimeConsumingPreferenceActivity
             // android.R.id.home will be triggered in onOptionsItemSelected()
             actionBar.setDisplayHomeAsUpEnabled(true);
         }
+
+        if (mCheckData) {
+            IntentFilter intentFilter = new IntentFilter();
+            intentFilter.addAction(TelephonyIntents.ACTION_ANY_DATA_CONNECTION_STATE_CHANGED);
+            intentFilter.addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+            mReceiver = new PhoneAppBroadcastReceiver();
+            registerReceiver(mReceiver, intentFilter);
+        }
     }
 
     private void layoutCallForwardItem(boolean support, CallForwardEditPreference preference,
@@ -276,10 +284,13 @@ public class GsmUmtsCallForwardOptions extends TimeConsumingPreferenceActivity
                 showAlertDialog(title, message);
                 return;
             }
-            // check if mobile data on current sub is enabled by user
+            // check if mobile data on current sub is enabled by user or airplane mode
             boolean isDataEnabled = TelephonyManager.from(this).createForSubscriptionId(sub)
                     .isDataEnabled();
-            if (!isDataEnabled) {
+            boolean isAirplaneMode = Settings.Global.getInt(
+                    mPhone.getContext().getContentResolver(), Settings.Global.AIRPLANE_MODE_ON,
+                    PhoneGlobals.AIRPLANE_OFF) == PhoneGlobals.AIRPLANE_ON;
+            if (!isDataEnabled || isAirplaneMode) {
                 Log.d(LOG_TAG, "Mobile data is not available");
                 String title = (String)this.getResources().getText(R.string.no_mobile_data);
                 String message = (String)this.getResources()
@@ -344,11 +355,6 @@ public class GsmUmtsCallForwardOptions extends TimeConsumingPreferenceActivity
     public void onResume() {
         super.onResume();
         if (mCheckData) {
-            IntentFilter intentFilter = new IntentFilter();
-            intentFilter.addAction(TelephonyIntents.ACTION_ANY_DATA_CONNECTION_STATE_CHANGED);
-            intentFilter.addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED);
-            mReceiver = new PhoneAppBroadcastReceiver();
-            registerReceiver(mReceiver, intentFilter);
             checkDataStatus();
         } else {
             initCallforwarding();
@@ -405,16 +411,11 @@ public class GsmUmtsCallForwardOptions extends TimeConsumingPreferenceActivity
     }
 
     @Override
-    public void onPause() {
-        super.onPause();
+    public void onDestroy() {
+        super.onDestroy();
         if (mCheckData && mReceiver != null) {
             unregisterReceiver(mReceiver);
         }
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
         for (CallForwardEditPreference pref : mPreferences) {
             pref.deInit();
         }

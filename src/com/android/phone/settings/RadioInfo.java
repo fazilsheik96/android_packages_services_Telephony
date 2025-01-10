@@ -81,6 +81,7 @@ import android.os.HandlerThread;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.os.UserManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.CarrierConfigManager;
@@ -121,7 +122,6 @@ import android.telephony.ims.ImsRcsManager;
 import android.telephony.ims.ProvisioningManager;
 import android.telephony.ims.feature.MmTelFeature;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
-import android.telephony.satellite.EnableRequestAttributes;
 import android.telephony.satellite.SatelliteManager;
 import android.text.TextUtils;
 import android.util.Log;
@@ -153,6 +153,7 @@ import com.android.phone.utils.Utils;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -402,8 +403,14 @@ public class RadioInfo extends AppCompatActivity {
     private int mSelectedPhoneIndex;
     private boolean isExtServiceConnected = false;
 
+    private int mSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+
     private String mActionEsos;
     private String mActionEsosDemo;
+    private Intent mNonEsosIntent;
+    private TelephonyDisplayInfo mDisplayInfo;
+
+    private List<PhysicalChannelConfig> mPhysicalChannelConfigs = new ArrayList<>();
 
     private final NetworkRequest mDefaultNetworkRequest = new NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
@@ -640,7 +647,7 @@ public class RadioInfo extends AppCompatActivity {
         mActionEsos =
             r.getString(
                     com.android.internal.R.string
-                            .config_satellite_emergency_handover_intent_action);
+                            .config_satellite_test_with_esp_replies_intent_action);
 
         mActionEsosDemo =
             r.getString(
@@ -648,6 +655,7 @@ public class RadioInfo extends AppCompatActivity {
 
         mQueuedWork = new ThreadPoolExecutor(1, 1, RUNNABLE_TIMEOUT_MS, TimeUnit.MICROSECONDS,
                 new LinkedBlockingDeque<Runnable>());
+        mSubId = SubscriptionManager.getDefaultSubscriptionId();
         mConnectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         mPhone = getPhone(SubscriptionManager.getDefaultSubscriptionId());
         mTelephonyManager = ((TelephonyManager) getSystemService(TELEPHONY_SERVICE))
@@ -839,34 +847,33 @@ public class RadioInfo extends AppCompatActivity {
         mEsosDemoButton  = (Button) findViewById(R.id.demo_esos_questionnaire);
         mSatelliteEnableNonEmergencyModeButton = (Button) findViewById(
                 R.id.satellite_enable_non_emergency_mode);
-        CarrierConfigManager cm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
-        if (!cm.getConfigForSubId(mPhone.getSubId(),
-                        CarrierConfigManager.KEY_SATELLITE_ATTACH_SUPPORTED_BOOL)
-                .getBoolean(CarrierConfigManager.KEY_SATELLITE_ATTACH_SUPPORTED_BOOL)) {
-            mSatelliteEnableNonEmergencyModeButton.setVisibility(View.GONE);
-        }
-        if (!TelephonyUtils.IS_DEBUGGABLE) {
-            if (!TextUtils.isEmpty(mActionEsos)) {
-                mEsosButton.setVisibility(View.GONE);
-            }
-            if (!TextUtils.isEmpty(mActionEsosDemo)) {
-                mEsosDemoButton.setVisibility(View.GONE);
-            }
-            mSatelliteEnableNonEmergencyModeButton.setVisibility(View.GONE);
+
+        if (shouldHideButton(mActionEsos)) {
+            mEsosButton.setVisibility(View.GONE);
         } else {
             mEsosButton.setOnClickListener(v ->
                     mPhone.getContext().startActivity(
                         new Intent(mActionEsos)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK))
             );
-            mEsosDemoButton.setOnClickListener(v ->
-                    mPhone.getContext().startActivity(
-                            new Intent(mActionEsosDemo)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                                            | Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        }
+        if (shouldHideButton(mActionEsosDemo)) {
+            mEsosDemoButton.setVisibility(View.GONE);
+        } else {
+            mEsosDemoButton.setOnClickListener(v -> startActivityAsUser(
+                    new Intent(mActionEsosDemo).addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                    UserHandle.CURRENT)
             );
-            mSatelliteEnableNonEmergencyModeButton.setOnClickListener(v ->
-                    enableSatelliteNonEmergencyMode());
+        }
+        if (shouldHideNonEmergencyMode()) {
+            mSatelliteEnableNonEmergencyModeButton.setVisibility(View.GONE);
+        } else {
+            mSatelliteEnableNonEmergencyModeButton.setOnClickListener(v -> {
+                if (mNonEsosIntent != null) {
+                    sendBroadcast(mNonEsosIntent);
+                }
+            });
         }
 
         mOemInfoButton = (Button) findViewById(R.id.oem_info);
@@ -894,6 +901,21 @@ public class RadioInfo extends AppCompatActivity {
         mExtTelephonyManager.connectService(mServiceCallback);
         Log.d(TAG, "Connect to ExtTelephony bound service...");
 
+    }
+
+    boolean shouldHideButton(String action) {
+        if (!Build.isDebuggable()) {
+            return true;
+        }
+        if (TextUtils.isEmpty(action)) {
+            return true;
+        }
+        PackageManager pm = getPackageManager();
+        Intent intent = new Intent(action);
+        if (pm.resolveActivity(intent, 0) == null) {
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -2096,27 +2118,68 @@ public class RadioInfo extends AppCompatActivity {
                 }
             };
 
-    /**
-     * Enable modem satellite for non-emergency mode.
-     */
-    private void enableSatelliteNonEmergencyMode() {
-        SatelliteManager sm = mPhone.getContext().getSystemService(SatelliteManager.class);
-        CarrierConfigManager cm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
-        if (sm == null || cm == null) {
-            loge("enableSatelliteNonEmergencyMode: sm or cm is null");
-            return;
+    private boolean shouldHideNonEmergencyMode() {
+        if (!Build.isDebuggable()) {
+            return true;
         }
-        if (!cm.getConfigForSubId(mPhone.getSubId(),
-                CarrierConfigManager.KEY_SATELLITE_ATTACH_SUPPORTED_BOOL)
-                .getBoolean(CarrierConfigManager.KEY_SATELLITE_ATTACH_SUPPORTED_BOOL)) {
-            loge("enableSatelliteNonEmergencyMode: KEY_SATELLITE_ATTACH_SUPPORTED_BOOL is false");
-            return;
+        String action  = SatelliteManager.ACTION_SATELLITE_START_NON_EMERGENCY_SESSION;
+        if (TextUtils.isEmpty(action)) {
+            return true;
         }
-        log("enableSatelliteNonEmergencyMode: requestEnabled");
-        sm.requestEnabled(new EnableRequestAttributes.Builder(true)
-                        .setDemoMode(false).setEmergencyMode(false).build(),
-                Runnable::run, res -> log("enableSatelliteNonEmergencyMode: " + res)
-        );
+        if (mNonEsosIntent != null) {
+            mNonEsosIntent = null;
+        }
+        CarrierConfigManager cm = getSystemService(CarrierConfigManager.class);
+        if (cm == null) {
+            loge("shouldHideNonEmergencyMode: cm is null");
+            return true;
+        }
+        PersistableBundle bundle = cm.getConfigForSubId(mSubId,
+                CarrierConfigManager.KEY_SATELLITE_ATTACH_SUPPORTED_BOOL,
+                CarrierConfigManager.KEY_SATELLITE_ESOS_SUPPORTED_BOOL);
+        if (!bundle.getBoolean(
+                CarrierConfigManager.KEY_SATELLITE_ESOS_SUPPORTED_BOOL, false)) {
+            log("shouldHideNonEmergencyMode: esos_supported false");
+            return true;
+        }
+        if (!bundle.getBoolean(
+                CarrierConfigManager.KEY_SATELLITE_ATTACH_SUPPORTED_BOOL, false)) {
+            log("shouldHideNonEmergencyMode: attach_supported false");
+            return true;
+        }
+
+        String packageName = getStringFromOverlayConfig(
+                com.android.internal.R.string.config_satellite_gateway_service_package);
+
+        String className = getStringFromOverlayConfig(com.android.internal.R.string
+                .config_satellite_carrier_roaming_non_emergency_session_class);
+        if (packageName == null || className == null
+                || packageName.isEmpty() || className.isEmpty()) {
+            Log.d(TAG, "shouldHideNonEmergencyMode:"
+                    + " packageName or className is null or empty.");
+            return true;
+        }
+        PackageManager pm = getPackageManager();
+        Intent intent = new Intent(action);
+        intent.setComponent(new ComponentName(packageName, className));
+        if (pm.queryBroadcastReceivers(intent, 0).isEmpty()) {
+            Log.d(TAG, "shouldHideNonEmergencyMode: Broadcast receiver not found for intent: "
+                    + intent);
+            return true;
+        }
+        mNonEsosIntent = intent;
+        return false;
+    }
+
+    private String getStringFromOverlayConfig(int resourceId) {
+        String name;
+        try {
+            name = getResources().getString(resourceId);
+        } catch (Resources.NotFoundException ex) {
+            loge("getStringFromOverlayConfig: ex=" + ex);
+            name = null;
+        }
+        return name;
     }
 
     private boolean isImsVolteProvisioned() {

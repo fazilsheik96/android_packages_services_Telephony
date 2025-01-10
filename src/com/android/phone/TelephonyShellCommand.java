@@ -56,12 +56,12 @@ import com.android.ims.rcs.uce.util.FeatureTags;
 import com.android.internal.telephony.ITelephony;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
+import com.android.internal.telephony.TelephonyPermissions;
 import com.android.internal.telephony.d2d.Communicator;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.modules.utils.BasicShellCommandHandler;
 import com.android.phone.callcomposer.CallComposerPictureManager;
-import com.android.phone.euicc.EuiccUiDispatcherActivity;
 import com.android.phone.utils.CarrierAllowListInfo;
 
 import java.io.IOException;
@@ -132,9 +132,6 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
     private static final String CC_SET_VALUES_FROM_XML = "set-values-from-xml";
     private static final String CC_CLEAR_VALUES = "clear-values";
 
-    private static final String EUICC_SUBCOMMAND = "euicc";
-    private static final String EUICC_SET_UI_COMPONENT = "set-euicc-uicomponent";
-
     private static final String GBA_SUBCOMMAND = "gba";
     private static final String GBA_SET_SERVICE = "set-service";
     private static final String GBA_GET_SERVICE = "get-service";
@@ -191,6 +188,8 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
             "set-satellite-gateway-service-package-name";
     private static final String SET_SATELLITE_LISTENING_TIMEOUT_DURATION =
             "set-satellite-listening-timeout-duration";
+    private static final String SET_SATELLITE_IGNORE_CELLULAR_SERVICE_STATE =
+            "set-satellite-ignore-cellular-service-state";
     private static final String SET_SATELLITE_POINTING_UI_CLASS_NAME =
             "set-satellite-pointing-ui-class-name";
     private static final String SET_DATAGRAM_CONTROLLER_TIMEOUT_DURATION =
@@ -211,6 +210,11 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
             "set-should-send-datagram-to-modem-in-demo-mode";
     private static final String SET_IS_SATELLITE_COMMUNICATION_ALLOWED_FOR_CURRENT_LOCATION_CACHE =
             "set-is-satellite-communication-allowed-for-current-location-cache";
+    private static final String SET_SATELLITE_SUBSCRIBERID_LIST_CHANGED_INTENT_COMPONENT =
+            "set-satellite-subscriberid-list-changed-intent-component";
+
+    private static final String SET_SATELLITE_ACCESS_RESTRICTION_CHECKING_RESULT =
+            "set-satellite-access-restriction-checking-result";
 
     private static final String DOMAIN_SELECTION_SUBCOMMAND = "domainselection";
     private static final String DOMAIN_SELECTION_SET_SERVICE_OVERRIDE = "set-dss-override";
@@ -359,8 +363,6 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
                 return handleBackupCallingCommand();
             case END_BLOCK_SUPPRESSION:
                 return handleEndBlockSuppressionCommand();
-            case EUICC_SUBCOMMAND:
-                return handleEuiccCommand();
             case GBA_SUBCOMMAND:
                 return handleGbaCommand();
             case D2D_SUBCOMMAND:
@@ -406,6 +408,8 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
                 return handleSetSatelliteGatewayServicePackageNameCommand();
             case SET_SATELLITE_LISTENING_TIMEOUT_DURATION:
                 return handleSetSatelliteListeningTimeoutDuration();
+            case SET_SATELLITE_IGNORE_CELLULAR_SERVICE_STATE:
+                return handleSetSatelliteIgnoreCellularServiceState();
             case SET_SATELLITE_POINTING_UI_CLASS_NAME:
                 return handleSetSatellitePointingUiClassNameCommand();
             case SET_DATAGRAM_CONTROLLER_TIMEOUT_DURATION:
@@ -426,6 +430,10 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
                 return handleSetOemEnabledSatelliteProvisionStatus();
             case SET_IS_SATELLITE_COMMUNICATION_ALLOWED_FOR_CURRENT_LOCATION_CACHE:
                 return handleSetIsSatelliteCommunicationAllowedForCurrentLocationCache();
+            case SET_SATELLITE_SUBSCRIBERID_LIST_CHANGED_INTENT_COMPONENT:
+                return handleSetSatelliteSubscriberIdListChangedIntentComponent();
+            case SET_SATELLITE_ACCESS_RESTRICTION_CHECKING_RESULT:
+                return handleOverrideCarrierRoamingNtnEligibilityChanged();
             default: {
                 return handleDefaultCommands(cmd);
             }
@@ -696,15 +704,6 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
         pw.println("    Options are:");
         pw.println("      -s: The SIM slot ID to clear carrier config values for. If no option");
         pw.println("          is specified, it will choose the default voice SIM slot.");
-    }
-
-    private void onHelpEuicc() {
-        PrintWriter pw = getOutPrintWriter();
-        pw.println("Euicc Commands:");
-        pw.println("  euicc set-euicc-uicomponent COMPONENT_NAME PACKAGE_NAME");
-        pw.println("  Sets the Euicc Ui-Component which handles EuiccService Actions.");
-        pw.println("  COMPONENT_NAME: The component name which handles UI Actions.");
-        pw.println("  PACKAGE_NAME: THe package name in which ui component belongs.");
     }
 
     private void onHelpGba() {
@@ -2276,35 +2275,6 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
         return 0;
     }
 
-    private int handleEuiccCommand() {
-        String arg = getNextArg();
-        if (arg == null) {
-            onHelpEuicc();
-            return 0;
-        }
-
-        switch (arg) {
-            case EUICC_SET_UI_COMPONENT: {
-                return handleEuiccServiceCommand();
-            }
-        }
-        return -1;
-    }
-
-    private int handleEuiccServiceCommand() {
-        String uiComponent = getNextArg();
-        String packageName = getNextArg();
-        if (packageName == null || uiComponent == null) {
-            return -1;
-        }
-        EuiccUiDispatcherActivity.setTestEuiccUiComponent(packageName, uiComponent);
-        if (VDBG) {
-            Log.v(LOG_TAG, "euicc set-euicc-uicomponent " + uiComponent +" "
-                    + packageName);
-        }
-        return 0;
-    }
-
     private int handleRestartModemCommand() {
         // Verify that the user is allowed to run the command. Only allowed in rooted device in a
         // non user build.
@@ -3453,6 +3423,37 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
         return 0;
     }
 
+    private int handleSetSatelliteIgnoreCellularServiceState() {
+        PrintWriter errPw = getErrPrintWriter();
+        boolean enabled = false;
+
+        String opt;
+        while ((opt = getNextOption()) != null) {
+            switch (opt) {
+                case "-d": {
+                    enabled = Boolean.parseBoolean(getNextArgRequired());
+                    break;
+                }
+            }
+        }
+        Log.d(LOG_TAG, "handleSetSatelliteIgnoreCellularServiceState: enabled =" + enabled);
+
+        try {
+            boolean result = mInterface.setSatelliteIgnoreCellularServiceState(enabled);
+            if (VDBG) {
+                Log.v(LOG_TAG, "handleSetSatelliteIgnoreCellularServiceState " + enabled
+                        + ", result = " + result);
+            }
+            getOutPrintWriter().println(result);
+        } catch (RemoteException e) {
+            Log.w(LOG_TAG, "handleSetSatelliteIgnoreCellularServiceState: " + enabled
+                    + ", error = " + e.getMessage());
+            errPw.println("Exception: " + e.getMessage());
+            return -1;
+        }
+        return 0;
+    }
+
     private int handleSetDatagramControllerTimeoutDuration() {
         PrintWriter errPw = getErrPrintWriter();
         boolean reset = false;
@@ -3779,7 +3780,6 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
         PrintWriter errPw = getErrPrintWriter();
         String opt;
         String state;
-
         if ((opt = getNextArg()) == null) {
             errPw.println(
                     "adb shell cmd phone set-is-satellite-communication-allowed-for-current"
@@ -3790,6 +3790,10 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
             switch (opt) {
                 case "-a": {
                     state = "cache_allowed";
+                    break;
+                }
+                case "-na": {
+                    state = "cache_not_allowed";
                     break;
                 }
                 case "-n": {
@@ -3824,6 +3828,54 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
         } catch (RemoteException e) {
             Log.w(LOG_TAG, "setIsSatelliteCommunicationAllowedForCurrentLocationCache("
                     + state + "), error = " + e.getMessage());
+            errPw.println("Exception: " + e.getMessage());
+            return -1;
+        }
+        return 0;
+    }
+
+    private int handleSetSatelliteSubscriberIdListChangedIntentComponent() {
+        final String cmd = SET_SATELLITE_SUBSCRIBERID_LIST_CHANGED_INTENT_COMPONENT;
+        PrintWriter errPw = getErrPrintWriter();
+        String opt;
+        String name;
+
+        if ((opt = getNextArg()) == null) {
+            errPw.println("adb shell cmd phone " + cmd + ": Invalid Argument");
+            return -1;
+        } else {
+            switch (opt) {
+                case "-p": {
+                    name = opt + "/" + "android.telephony.cts";
+                    break;
+                }
+                case "-c": {
+                    name = opt + "/" + "android.telephony.cts.SatelliteReceiver";
+                    break;
+                }
+                case "-r": {
+                    name = "reset";
+                    break;
+                }
+                default:
+                    errPw.println("adb shell cmd phone " + cmd + ": Invalid Argument");
+                    return -1;
+            }
+        }
+
+        Log.d(LOG_TAG, "handleSetSatelliteSubscriberIdListChangedIntentComponent("
+                + name + ")");
+
+        try {
+            boolean result = mInterface.setSatelliteSubscriberIdListChangedIntentComponent(name);
+            if (VDBG) {
+                Log.v(LOG_TAG, "handleSetSatelliteSubscriberIdListChangedIntentComponent "
+                        + "returns: " + result);
+            }
+            getOutPrintWriter().println(result);
+        } catch (RemoteException e) {
+            Log.w(LOG_TAG, "handleSetSatelliteSubscriberIdListChangedIntentComponent("
+                    + name + "), error = " + e.getMessage());
             errPw.println("Exception: " + e.getMessage());
             return -1;
         }
@@ -4081,5 +4133,49 @@ public class TelephonyShellCommand extends BasicShellCommandHandler {
                 jSonString = null;
         }
         return jSonString;
+    }
+
+    /**
+     * This method override the check for carrier roaming Ntn eligibility.
+     * <ul>
+     * <li> `adb shell cmd phone set-satellite-access-restriction-checking-result true` will set
+     * override eligibility to true.</li>
+     * <li> `adb shell cmd phone set-satellite-access-restriction-checking-result false` will
+     * override eligibility to false.</li>
+     * <li> `adb shell cmd phone set-satellite-access-restriction-checking-result` will reset the
+     * override data set through adb command.</li>
+     * </ul>
+     *
+     * @return {@code true} is command executed successfully otherwise {@code false}.
+     */
+    private int handleOverrideCarrierRoamingNtnEligibilityChanged() {
+        PrintWriter errPw = getErrPrintWriter();
+        String opt;
+        boolean state = false;
+        boolean isRestRequired = false;
+        try {
+            if ((opt = getNextArg()) == null) {
+                isRestRequired = true;
+            } else {
+                if ("true".equalsIgnoreCase(opt)) {
+                    state = true;
+                }
+            }
+            boolean result = mInterface.overrideCarrierRoamingNtnEligibilityChanged(state,
+                    isRestRequired);
+            if (VDBG) {
+                Log.v(LOG_TAG, "handleSetSatelliteAccessRestrictionCheckingResult "
+                        + "returns: "
+                        + result);
+            }
+            getOutPrintWriter().println(result);
+        } catch (RemoteException e) {
+            Log.w(LOG_TAG, "handleSetSatelliteAccessRestrictionCheckingResult("
+                    + state + "), error = " + e.getMessage());
+            errPw.println("Exception: " + e.getMessage());
+            return -1;
+        }
+        Log.d(LOG_TAG, "handleSetSatelliteAccessRestrictionCheckingResult(" + state + ")");
+        return 0;
     }
 }
